@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Budget Tracker",
+    "slug": "budget-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0d1117",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.yourname.budgettracker"
+    },
+    "android": {
+      "package": "com.yourname.budgettracker"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+    "scheme": "budget-tracker",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
