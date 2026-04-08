@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { DarkColors } from '../constants/theme';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import AuthScreen from './auth';
 
 /* Inner component so useTheme() works inside ThemeProvider */
 function AppTabs() {
@@ -25,7 +26,6 @@ function AppTabs() {
             backgroundColor: colors.card,
             borderTopColor: colors.border,
             borderTopWidth: 1,
-            // Fix #1: respect device bottom safe-area (home indicator / gesture bar)
             height: 56 + insets.bottom,
             paddingBottom: insets.bottom + 4,
             paddingTop: 6,
@@ -33,7 +33,7 @@ function AppTabs() {
           tabBarActiveTintColor: colors.accent,
           tabBarInactiveTintColor: colors.textDim,
           tabBarLabelStyle: {
-            fontSize: 10,           // +1pt
+            fontSize: 10,
             fontWeight: '700',
             letterSpacing: 0.5,
             textTransform: 'uppercase',
@@ -85,6 +85,11 @@ function AppTabs() {
             ),
           }}
         />
+        {/* Hide the auth screen from the tab bar */}
+        <Tabs.Screen
+          name="auth"
+          options={{ href: null }}
+        />
       </Tabs>
     </>
   );
@@ -98,6 +103,22 @@ function LoadingScreen() {
   );
 }
 
+function AppContent() {
+  const { colors, isDark } = useTheme();
+  const { session } = useStore();
+
+  if (!session) {
+    return (
+      <>
+        <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.bg} />
+        <AuthScreen />
+      </>
+    );
+  }
+
+  return <AppTabs />;
+}
+
 export default function RootLayout() {
   const { load, loaded } = useStore();
 
@@ -109,7 +130,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AppTabs />
+          <AppContent />
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -10,6 +10,7 @@ import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import { CURRENCIES, MONTHS, YEARS } from '../constants/theme';
 import { fmtC, cvt, toUSD } from '../utils/format';
+import { supabase } from '../lib/supabase';
 
 const Section = ({ title, children, colors }: any) => (
   <View style={styles.section}>
@@ -92,6 +93,20 @@ export default function SettingsScreen() {
   const handleRefreshRates = () => {
     fetchRates();
     Alert.alert('Rates Updated', 'Currency exchange rates have been refreshed.');
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out', style: 'destructive',
+          onPress: () => supabase.auth.signOut(),
+        },
+      ]
+    );
   };
 
   // Balance summaries
@@ -350,6 +365,14 @@ export default function SettingsScreen() {
             iconColor={colors.negative}
             label="Reset All Data"
             onPress={handleReset}
+            colors={colors}
+            right={<Ionicons name="chevron-forward" size={15} color={colors.textDim} />}
+          />
+          <Row
+            icon="log-out-outline"
+            iconColor={colors.accent}
+            label="Sign Out"
+            onPress={handleSignOut}
             last
             colors={colors}
             right={<Ionicons name="chevron-forward" size={15} color={colors.textDim} />}
