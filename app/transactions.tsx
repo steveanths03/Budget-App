@@ -13,8 +13,6 @@ import { fmtC, toUSD, cvt, uid, todayStr } from '../utils/format';
 
 /* ─────────────────────────────────────────────────────────────────────
    TxnModal
-   - User always enters amount in their display currency
-   - onSave converts to USD before persisting so all stored values are USD
    ───────────────────────────────────────────────────────────────────── */
 const TxnModal = ({
   visible, onClose, onSave, db, initialData, colors, catColors, currency, liveRates,
@@ -45,10 +43,8 @@ const TxnModal = ({
     setDescription(initialData?.description ?? '');
 
     if (initialData?.amount != null) {
-      // stored value is USD — convert back to display currency for editing
       const displayVal = cvt(initialData.amount, currency, liveRates);
-      const decimals   = currency === 'JPY' ? 0 : 2;
-      setAmount(displayVal.toFixed(decimals));
+      setAmount(String(Math.round(displayVal)));
     } else {
       setAmount('');
     }
@@ -71,7 +67,6 @@ const TxnModal = ({
 
   const handleSave = () => {
     if (!canSave) return;
-    // Convert display-currency amount → USD before saving
     const usdAmount = toUSD(parseFloat(amount), currency, liveRates);
     onSave({ date, amount: usdAmount, category, subCategory, description });
     onClose();
@@ -108,7 +103,7 @@ const TxnModal = ({
             style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
             value={amount}
             onChangeText={setAmount}
-            placeholder="0.00"
+            placeholder="0"
             placeholderTextColor={colors.textDim}
             keyboardType="decimal-pad"
           />
@@ -188,23 +183,25 @@ export default function TransactionsScreen() {
 
   const [search,       setSearch]       = useState('');
   const [filterCat,    setFilterCat]    = useState('All');
-  // 'month' = filter to selected month/year; 'all' = show everything
   const [dateScope,    setDateScope]    = useState<'month' | 'all'>('month');
   const [modalVisible, setModalVisible] = useState(false);
   const [editData,     setEditData]     = useState<any>(null);
 
   const fmt = (usdVal: number) => fmtC(usdVal, currency, liveRates);
 
-  /* Transactions for the selected month */
+  /* Month transactions */
   const monthTxns = useMemo(() => db.transactions.filter(t => {
     const d = new Date(t.date + 'T00:00:00');
     return d.getFullYear() === year && d.getMonth() === month;
   }), [db.transactions, month, year]);
 
-  /* Source pool depends on date scope toggle */
-  const scopedTxns = dateScope === 'month' ? monthTxns : db.transactions;
+  /* All transactions */
+  const allTxns = db.transactions;
 
-  /* Applied filters */
+  /* Source pool depends on dateScope toggle */
+  const scopedTxns = dateScope === 'month' ? monthTxns : allTxns;
+
+  /* Applied filters for the LIST only */
   const displayed = useMemo(() => {
     let arr = [...scopedTxns];
     if (filterCat !== 'All') arr = arr.filter(t => t.category === filterCat);
@@ -215,13 +212,18 @@ export default function TransactionsScreen() {
     return arr.sort((a, b) => b.date.localeCompare(a.date));
   }, [scopedTxns, filterCat, search]);
 
-  /* Summaries always from monthTxns so the strip stays meaningful */
-  const totalIn  = monthTxns.filter(t => t.category === 'Income').reduce((s, t) => s + t.amount, 0);
-  const totalOut = monthTxns.filter(t => t.category !== 'Income').reduce((s, t) => s + t.amount, 0);
+  /* ── IN / OUT / NET always reflect the CURRENT SCOPE (not hardcoded to month) ── */
+  const summaryTxns = scopedTxns; // whatever the user toggled
+  const totalIn  = summaryTxns.filter(t => t.category === 'Income').reduce((s, t) => s + t.amount, 0);
+  const totalOut = summaryTxns.filter(t => t.category !== 'Income').reduce((s, t) => s + t.amount, 0);
+  const net      = totalIn - totalOut;
 
-  /* Add: amount already converted to USD inside TxnModal */
+  /* Scope label for the strip */
+  const scopeLabel = dateScope === 'month'
+    ? `${MONTHS[month].slice(0, 3)} ${year}`
+    : 'All Time';
+
   const handleAdd  = (data: any) => addTransaction({ id: uid(), ...data });
-  /* Edit: amount already converted to USD inside TxnModal */
   const handleEdit = (data: any) => {
     if (editData) { editTransaction(editData.id, data); setEditData(null); }
   };
@@ -241,7 +243,7 @@ export default function TransactionsScreen() {
           <View>
             <Text style={[styles.pageTitle, { color: colors.textBright }]}>Transactions</Text>
             <Text style={[styles.pageSub, { color: colors.textDim }]}>
-              {MONTHS[month]} {year} · {monthTxns.length} entries
+              {MONTHS[month]} {year} · {monthTxns.length} entries this month
             </Text>
           </View>
           <TouchableOpacity
@@ -252,32 +254,15 @@ export default function TransactionsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Summary strip (always this month) */}
-        <View style={[styles.summaryStrip, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {[
-            { label: 'IN',  val: totalIn,            color: colors.positive },
-            { label: 'OUT', val: totalOut,           color: colors.negative },
-            { label: 'NET', val: totalIn - totalOut, color: (totalIn - totalOut) >= 0 ? colors.positive : colors.negative },
-          ].map((item, i) => (
-            <React.Fragment key={item.label}>
-              {i > 0 && <View style={{ width: 1, height: '80%', backgroundColor: colors.border }} />}
-              <View style={styles.summaryItem}>
-                <Text style={{ fontSize: 10, color: colors.textDim, letterSpacing: 1 }}>{item.label}</Text>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: item.color }}>{fmt(item.val)}</Text>
-              </View>
-            </React.Fragment>
-          ))}
-        </View>
-
-        {/* Date scope toggle */}
-        <View style={[styles.scopeRow, { borderColor: colors.border }]}>
+        {/* Date scope toggle — ABOVE the summary strip so it's clear what the strip shows */}
+        <View style={[styles.scopeRow, { paddingHorizontal: 14, marginBottom: 8 }]}>
           {(['month', 'all'] as const).map(s => (
             <TouchableOpacity
               key={s}
               style={[
                 styles.scopeBtn,
-                dateScope === s && { backgroundColor: colors.accent + '22', borderColor: colors.accent },
                 { borderColor: colors.border },
+                dateScope === s && { backgroundColor: colors.accent + '22', borderColor: colors.accent },
               ]}
               onPress={() => setDateScope(s)}
             >
@@ -285,6 +270,25 @@ export default function TransactionsScreen() {
                 {s === 'month' ? `${MONTHS[month].slice(0, 3)} ${year}` : 'All Time'}
               </Text>
             </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Summary strip — always reflects current dateScope */}
+        <View style={[styles.summaryStrip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {[
+            { label: 'IN',  val: totalIn,  color: colors.positive },
+            { label: 'OUT', val: totalOut, color: colors.negative },
+            { label: 'NET', val: net,      color: net >= 0 ? colors.positive : colors.negative },
+          ].map((item, i) => (
+            <React.Fragment key={item.label}>
+              {i > 0 && <View style={{ width: 1, height: '80%', backgroundColor: colors.border }} />}
+              <View style={styles.summaryItem}>
+                <Text style={{ fontSize: 9, color: colors.textDim, letterSpacing: 1, textTransform: 'uppercase' }}>
+                  {item.label} · {scopeLabel}
+                </Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: item.color }}>{fmt(item.val)}</Text>
+              </View>
+            </React.Fragment>
           ))}
         </View>
 
@@ -341,7 +345,6 @@ export default function TransactionsScreen() {
                     ? `No transactions for ${MONTHS[month]} ${year}`
                     : 'No transactions yet'}
               </Text>
-              {/* Suggest switching scope if month is empty */}
               {dateScope === 'month' && db.transactions.length > 0 && monthTxns.length === 0 && (
                 <TouchableOpacity onPress={() => setDateScope('all')} style={{ marginTop: 10 }}>
                   <Text style={{ color: colors.accent, fontSize: 13, fontWeight: '700' }}>Show all transactions →</Text>
@@ -441,13 +444,8 @@ const styles = StyleSheet.create({
   },
   summaryItem: { alignItems: 'center', gap: 4 },
 
-  scopeRow: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 14, marginBottom: 8,
-  },
-  scopeBtn: {
-    flex: 1, paddingVertical: 7, borderRadius: 20, borderWidth: 1,
-    alignItems: 'center',
-  },
+  scopeRow:  { flexDirection: 'row', gap: 8 },
+  scopeBtn:  { flex: 1, paddingVertical: 7, borderRadius: 20, borderWidth: 1, alignItems: 'center' },
 
   filterRow:  { marginBottom: 8, flexGrow: 0 },
   filterChip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
@@ -465,7 +463,6 @@ const styles = StyleSheet.create({
   txnDelete: { padding: 14, justifyContent: 'center', borderLeftWidth: 1 },
   catBadge:  { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, borderWidth: 1 },
 
-  // Modal
   modalOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
   modalSheet: {
     borderTopLeftRadius: 20, borderTopRightRadius: 20,

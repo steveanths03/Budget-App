@@ -24,11 +24,8 @@ export const fmtC = (
   if (usdVal == null) return '';
   const cur = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
   const val = cvt(Math.abs(usdVal), currency, rates);
-  const decimals = currency === 'JPY' ? 0 : 2;
-  return `${cur.symbol}${val.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  })}`;
+  // Always 0 decimal places — clean integer display
+  return `${cur.symbol}${Math.round(val).toLocaleString('en-US')}`;
 };
 
 export const uid = () => Math.random().toString(36).slice(2);
