@@ -1,5 +1,5 @@
 // app/transactions.tsx
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput,
   Modal, KeyboardAvoidingView, Platform, Alert,
@@ -8,12 +8,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
-import { CATEGORY_LIST, MONTHS } from '../constants/theme';
-import { fmtC, uid, todayStr } from '../utils/format';
+import { CATEGORY_LIST, CURRENCIES, MONTHS } from '../constants/theme';
+import { fmtC, toUSD, cvt, uid, todayStr } from '../utils/format';
 
-/* ── Add/Edit Transaction Modal ─────── */
+/* ─────────────────────────────────────────────────────────────────────
+   TxnModal
+   - User always enters amount in their display currency
+   - onSave converts to USD before persisting so all stored values are USD
+   ───────────────────────────────────────────────────────────────────── */
 const TxnModal = ({
-  visible, onClose, onSave, db, initialData, colors, catColors,
+  visible, onClose, onSave, db, initialData, colors, catColors, currency, liveRates,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -22,41 +26,54 @@ const TxnModal = ({
   initialData?: any;
   colors: any;
   catColors: Record<string, string>;
+  currency: string;
+  liveRates: Record<string, number>;
 }) => {
-  const [date,        setDate]        = useState(initialData?.date || todayStr());
-  const [amount,      setAmount]      = useState(initialData ? String(initialData.amount) : '');
-  const [category,    setCategory]    = useState(initialData?.category || 'Expenses');
-  const [subCategory, setSubCategory] = useState(initialData?.subCategory || '');
-  const [description, setDescription] = useState(initialData?.description || '');
+  const curSymbol = (CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol;
+
+  const [date,        setDate]        = useState(todayStr());
+  const [amount,      setAmount]      = useState('');
+  const [category,    setCategory]    = useState('Expenses');
+  const [subCategory, setSubCategory] = useState('');
+  const [description, setDescription] = useState('');
 
   React.useEffect(() => {
-    if (visible) {
-      setDate(initialData?.date || todayStr());
-      setAmount(initialData ? String(initialData.amount) : '');
-      setCategory(initialData?.category || 'Expenses');
-      setSubCategory(initialData?.subCategory || '');
-      setDescription(initialData?.description || '');
+    if (!visible) return;
+    setDate(initialData?.date ?? todayStr());
+    setCategory(initialData?.category ?? 'Expenses');
+    setSubCategory(initialData?.subCategory ?? '');
+    setDescription(initialData?.description ?? '');
+
+    if (initialData?.amount != null) {
+      // stored value is USD — convert back to display currency for editing
+      const displayVal = cvt(initialData.amount, currency, liveRates);
+      const decimals   = currency === 'JPY' ? 0 : 2;
+      setAmount(displayVal.toFixed(decimals));
+    } else {
+      setAmount('');
     }
-  }, [visible, initialData]);
+  }, [visible, initialData, currency, liveRates]);
 
   const subOptions = useMemo(() => {
     const map: Record<string, string[]> = {
-      Income: db.income.map((r: any) => r.source),
-      Expenses: db.expenses.map((r: any) => r.sub),
-      Bills: db.bills.map((r: any) => r.sub),
-      Savings: db.savings.map((r: any) => r.sub),
-      Debts: db.debts.map((r: any) => r.sub),
+      Income:        db.income.map((r: any) => r.source),
+      Expenses:      db.expenses.map((r: any) => r.sub),
+      Bills:         db.bills.map((r: any) => r.sub),
+      Savings:       db.savings.map((r: any) => r.sub),
+      Debts:         db.debts.map((r: any) => r.sub),
       Subscriptions: db.subscriptions.map((r: any) => r.sub),
     };
     return map[category] || [];
   }, [db, category]);
 
-  const canSave = date && amount && subCategory;
+  const canSave = date && parseFloat(amount) > 0 && subCategory;
   const color   = catColors[category];
 
   const handleSave = () => {
     if (!canSave) return;
-    onSave({ date, amount: parseFloat(amount) || 0, category, subCategory, description });
+    // Convert display-currency amount → USD before saving
+    const usdAmount = toUSD(parseFloat(amount), currency, liveRates);
+    onSave({ date, amount: usdAmount, category, subCategory, description });
     onClose();
   };
 
@@ -74,7 +91,7 @@ const TxnModal = ({
             {initialData ? 'Edit Transaction' : 'Add Transaction'}
           </Text>
 
-          <Text style={[styles.inputLabel, { color: colors.textDim }]}>Date</Text>
+          <Text style={[styles.inputLabel, { color: colors.textDim }]}>Date (YYYY-MM-DD)</Text>
           <TextInput
             style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
             value={date}
@@ -84,7 +101,9 @@ const TxnModal = ({
             keyboardType="numbers-and-punctuation"
           />
 
-          <Text style={[styles.inputLabel, { marginTop: 13, color: colors.textDim }]}>Amount</Text>
+          <Text style={[styles.inputLabel, { marginTop: 13, color: colors.textDim }]}>
+            Amount ({curSymbol})
+          </Text>
           <TextInput
             style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
             value={amount}
@@ -95,7 +114,7 @@ const TxnModal = ({
           />
 
           <Text style={[styles.inputLabel, { marginTop: 13, color: colors.textDim }]}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 4 }}>
               {CATEGORY_LIST.map(cat => (
                 <TouchableOpacity
@@ -110,7 +129,7 @@ const TxnModal = ({
           </ScrollView>
 
           <Text style={[styles.inputLabel, { marginTop: 13, color: colors.textDim }]}>Sub-Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 4 }}>
               {subOptions.map(s => (
                 <TouchableOpacity
@@ -122,9 +141,7 @@ const TxnModal = ({
                 </TouchableOpacity>
               ))}
               {subOptions.length === 0 && (
-                <Text style={{ fontSize: 11, color: colors.textDim, paddingVertical: 8 }}>
-                  Add budget rows first to populate options
-                </Text>
+                <Text style={{ fontSize: 11, color: colors.textDim, paddingVertical: 8 }}>Add budget rows first</Text>
               )}
             </View>
           </ScrollView>
@@ -171,37 +188,49 @@ export default function TransactionsScreen() {
 
   const [search,       setSearch]       = useState('');
   const [filterCat,    setFilterCat]    = useState('All');
+  // 'month' = filter to selected month/year; 'all' = show everything
+  const [dateScope,    setDateScope]    = useState<'month' | 'all'>('month');
   const [modalVisible, setModalVisible] = useState(false);
   const [editData,     setEditData]     = useState<any>(null);
 
-  const fmt = (v: number) => fmtC(v, currency, liveRates);
+  const fmt = (usdVal: number) => fmtC(usdVal, currency, liveRates);
 
+  /* Transactions for the selected month */
   const monthTxns = useMemo(() => db.transactions.filter(t => {
     const d = new Date(t.date + 'T00:00:00');
     return d.getFullYear() === year && d.getMonth() === month;
   }), [db.transactions, month, year]);
 
+  /* Source pool depends on date scope toggle */
+  const scopedTxns = dateScope === 'month' ? monthTxns : db.transactions;
+
+  /* Applied filters */
   const displayed = useMemo(() => {
-    let arr = [...monthTxns];
+    let arr = [...scopedTxns];
     if (filterCat !== 'All') arr = arr.filter(t => t.category === filterCat);
     if (search) arr = arr.filter(t =>
       t.subCategory.toLowerCase().includes(search.toLowerCase()) ||
       (t.description || '').toLowerCase().includes(search.toLowerCase())
     );
     return arr.sort((a, b) => b.date.localeCompare(a.date));
-  }, [monthTxns, filterCat, search]);
+  }, [scopedTxns, filterCat, search]);
 
+  /* Summaries always from monthTxns so the strip stays meaningful */
+  const totalIn  = monthTxns.filter(t => t.category === 'Income').reduce((s, t) => s + t.amount, 0);
+  const totalOut = monthTxns.filter(t => t.category !== 'Income').reduce((s, t) => s + t.amount, 0);
+
+  /* Add: amount already converted to USD inside TxnModal */
   const handleAdd  = (data: any) => addTransaction({ id: uid(), ...data });
-  const handleEdit = (data: any) => { if (editData) { editTransaction(editData.id, data); setEditData(null); } };
+  /* Edit: amount already converted to USD inside TxnModal */
+  const handleEdit = (data: any) => {
+    if (editData) { editTransaction(editData.id, data); setEditData(null); }
+  };
   const handleDelete = (id: string, name: string) => {
     Alert.alert('Delete Transaction', `Remove "${name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(id) },
     ]);
   };
-
-  const totalIn  = monthTxns.filter(t => t.category === 'Income').reduce((s, t) => s + t.amount, 0);
-  const totalOut = monthTxns.filter(t => t.category !== 'Income').reduce((s, t) => s + t.amount, 0);
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]} edges={['top']}>
@@ -211,7 +240,9 @@ export default function TransactionsScreen() {
         <View style={styles.header}>
           <View>
             <Text style={[styles.pageTitle, { color: colors.textBright }]}>Transactions</Text>
-            <Text style={[styles.pageSub, { color: colors.textDim }]}>{MONTHS[month]} {year} · {monthTxns.length} entries</Text>
+            <Text style={[styles.pageSub, { color: colors.textDim }]}>
+              {MONTHS[month]} {year} · {monthTxns.length} entries
+            </Text>
           </View>
           <TouchableOpacity
             style={[styles.addBtn, { backgroundColor: colors.accent }]}
@@ -221,12 +252,12 @@ export default function TransactionsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Summary strip */}
+        {/* Summary strip (always this month) */}
         <View style={[styles.summaryStrip, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {[
-            { label: 'IN',  val: totalIn,              color: colors.positive },
-            { label: 'OUT', val: totalOut,             color: colors.negative },
-            { label: 'NET', val: totalIn - totalOut,   color: (totalIn - totalOut) >= 0 ? colors.positive : colors.negative },
+            { label: 'IN',  val: totalIn,            color: colors.positive },
+            { label: 'OUT', val: totalOut,           color: colors.negative },
+            { label: 'NET', val: totalIn - totalOut, color: (totalIn - totalOut) >= 0 ? colors.positive : colors.negative },
           ].map((item, i) => (
             <React.Fragment key={item.label}>
               {i > 0 && <View style={{ width: 1, height: '80%', backgroundColor: colors.border }} />}
@@ -238,8 +269,32 @@ export default function TransactionsScreen() {
           ))}
         </View>
 
+        {/* Date scope toggle */}
+        <View style={[styles.scopeRow, { borderColor: colors.border }]}>
+          {(['month', 'all'] as const).map(s => (
+            <TouchableOpacity
+              key={s}
+              style={[
+                styles.scopeBtn,
+                dateScope === s && { backgroundColor: colors.accent + '22', borderColor: colors.accent },
+                { borderColor: colors.border },
+              ]}
+              onPress={() => setDateScope(s)}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '700', color: dateScope === s ? colors.accent : colors.textDim }}>
+                {s === 'month' ? `${MONTHS[month].slice(0, 3)} ${year}` : 'All Time'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* Category filter chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={{ gap: 6, paddingHorizontal: 14 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterRow}
+          contentContainerStyle={{ gap: 6, paddingHorizontal: 14 }}
+        >
           <TouchableOpacity
             style={[styles.filterChip, { borderColor: colors.border }, filterCat === 'All' && { backgroundColor: colors.accent + '33', borderColor: colors.accent }]}
             onPress={() => setFilterCat('All')}
@@ -274,16 +329,30 @@ export default function TransactionsScreen() {
           ) : null}
         </View>
 
-        {/* List */}
+        {/* Transaction list */}
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           {displayed.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="receipt-outline" size={42} color={colors.textDim} />
-              <Text style={{ color: colors.textDim, marginTop: 10, fontSize: 14 }}>
-                {search || filterCat !== 'All' ? 'No matching transactions' : `No transactions for ${MONTHS[month]} ${year}`}
+              <Text style={{ color: colors.textDim, marginTop: 10, fontSize: 14, textAlign: 'center' }}>
+                {search || filterCat !== 'All'
+                  ? 'No matching transactions'
+                  : dateScope === 'month'
+                    ? `No transactions for ${MONTHS[month]} ${year}`
+                    : 'No transactions yet'}
               </Text>
+              {/* Suggest switching scope if month is empty */}
+              {dateScope === 'month' && db.transactions.length > 0 && monthTxns.length === 0 && (
+                <TouchableOpacity onPress={() => setDateScope('all')} style={{ marginTop: 10 }}>
+                  <Text style={{ color: colors.accent, fontSize: 13, fontWeight: '700' }}>Show all transactions →</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
-                style={[styles.addBtn, { marginTop: 16, paddingHorizontal: 20, borderRadius: 20, flexDirection: 'row', gap: 6, width: 'auto', height: 40, backgroundColor: colors.accent }]}
+                style={[styles.addBtn, {
+                  marginTop: 16, paddingHorizontal: 20, borderRadius: 20,
+                  flexDirection: 'row', gap: 6, width: 'auto', height: 40,
+                  backgroundColor: colors.accent,
+                }]}
                 onPress={() => { setEditData(null); setModalVisible(true); }}
               >
                 <Ionicons name="add" size={17} color={colors.bg} />
@@ -345,6 +414,8 @@ export default function TransactionsScreen() {
           initialData={editData}
           colors={colors}
           catColors={catColors}
+          currency={currency}
+          liveRates={liveRates}
         />
       </View>
     </SafeAreaView>
@@ -352,7 +423,7 @@ export default function TransactionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
+  safeArea:  { flex: 1 },
   container: { flex: 1 },
 
   header: {
@@ -360,61 +431,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10,
   },
   pageTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
-  pageSub: { fontSize: 11, marginTop: 1 },
+  pageSub:   { fontSize: 11, marginTop: 1 },
 
   addBtn: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center' },
 
   summaryStrip: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    paddingVertical: 10,
-    marginBottom: 8,
+    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
+    borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 10, marginBottom: 8,
   },
   summaryItem: { alignItems: 'center', gap: 4 },
 
-  filterRow: { marginBottom: 8, flexGrow: 0 },
+  scopeRow: {
+    flexDirection: 'row', gap: 8, paddingHorizontal: 14, marginBottom: 8,
+  },
+  scopeBtn: {
+    flex: 1, paddingVertical: 7, borderRadius: 20, borderWidth: 1,
+    alignItems: 'center',
+  },
+
+  filterRow:  { marginBottom: 8, flexGrow: 0 },
   filterChip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
 
   searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 14, borderRadius: 8, borderWidth: 1, marginBottom: 8,
   },
   searchInput: { flex: 1, padding: 11, fontSize: 14 },
 
   emptyState: { alignItems: 'center', paddingTop: 80 },
 
-  txnCard: {
-    borderWidth: 1, borderRadius: 8,
-    flexDirection: 'row', overflow: 'hidden',
-  },
+  txnCard:   { borderWidth: 1, borderRadius: 8, flexDirection: 'row', overflow: 'hidden' },
   txnStripe: { width: 4 },
   txnDelete: { padding: 14, justifyContent: 'center', borderLeftWidth: 1 },
-  catBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, borderWidth: 1 },
+  catBadge:  { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, borderWidth: 1 },
 
   // Modal
   modalOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
   modalSheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    borderTopWidth: 1,
-    maxHeight: '90%',
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 24, borderTopWidth: 1, maxHeight: '90%',
   },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 17, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 20 },
-  inputLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 },
-  input: {
-    borderWidth: 1, borderRadius: 7, padding: 13, fontSize: 15,
-  },
-  catChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1 },
-  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 24 },
-  cancelBtn: { flex: 1, padding: 14, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
-  saveBtn: { flex: 2, padding: 14, borderRadius: 8, alignItems: 'center' },
+  modalHandle:  { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  modalTitle:   { fontSize: 17, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 20 },
+  inputLabel:   { fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 },
+  input:        { borderWidth: 1, borderRadius: 7, padding: 13, fontSize: 15 },
+  catChip:      { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1 },
+  modalBtns:    { flexDirection: 'row', gap: 10, marginTop: 24 },
+  cancelBtn:    { flex: 1, padding: 14, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
+  saveBtn:      { flex: 2, padding: 14, borderRadius: 8, alignItems: 'center' },
 });
