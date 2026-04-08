@@ -1,3 +1,4 @@
+// app/settings.tsx
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
@@ -6,40 +7,44 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { Colors, CURRENCIES, MONTHS, YEARS } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
+import { CURRENCIES, MONTHS, YEARS } from '../constants/theme';
 import { fmtC, cvt, toUSD } from '../utils/format';
 
-const Section = ({ title, children }: any) => (
+const Section = ({ title, children, colors }: any) => (
   <View style={styles.section}>
-    <Text style={styles.sectionTitle}>{title}</Text>
-    <View style={styles.sectionCard}>{children}</View>
+    <Text style={[styles.sectionTitle, { color: colors.textDim }]}>{title}</Text>
+    <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      {children}
+    </View>
   </View>
 );
 
-const Row = ({ label, icon, iconColor, right, onPress, last }: any) => (
+const Row = ({ label, icon, iconColor, right, onPress, last, colors }: any) => (
   <TouchableOpacity
-    style={[styles.row, !last && styles.rowBorder]}
+    style={[styles.row, !last && { borderBottomWidth: 1, borderBottomColor: colors.border }]}
     onPress={onPress}
     disabled={!onPress}
   >
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       <View style={[styles.iconCircle, { backgroundColor: iconColor + '22' }]}>
-        <Ionicons name={icon} size={16} color={iconColor} />
+        <Ionicons name={icon} size={17} color={iconColor} />
       </View>
-      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
     </View>
     {right}
   </TouchableOpacity>
 );
 
 export default function SettingsScreen() {
-  const { db, liveRates, setCurrency, setMonth, setYear, setInitialBalance, persist, load, fetchRates } = useStore();
+  const { db, liveRates, setCurrency, setMonth, setYear, setInitialBalance, persist, fetchRates } = useStore();
+  const { colors, isDark, toggleTheme } = useTheme();
   const { currency, month, year, initialBalance } = db;
 
   const [editingBal, setEditingBal] = useState(false);
-  const [balInput, setBalInput] = useState('');
+  const [balInput,   setBalInput]   = useState('');
 
-  const fmt = (v: number) => fmtC(v, currency, liveRates);
+  const fmt    = (v: number) => fmtC(v, currency, liveRates);
   const curSym = (CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol;
   const dispBal = Number(cvt(initialBalance, currency, liveRates).toFixed(2));
 
@@ -72,27 +77,60 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]} edges={['top']}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.bg }]}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={[styles.pageTitle, { color: colors.textBright }]}>Settings</Text>
 
-        <Text style={styles.pageTitle}>Settings</Text>
+        {/* ── Appearance ── */}
+        <Section title="Appearance" colors={colors}>
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.accent + '22' }]}>
+                <Ionicons name={isDark ? 'moon-outline' : 'sunny-outline'} size={17} color={colors.accent} />
+              </View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>
+                {isDark ? 'Dark Mode' : 'Light Mode'}
+              </Text>
+            </View>
+            <Switch
+              value={isDark}
+              onValueChange={toggleTheme}
+              trackColor={{ false: colors.border, true: colors.accent + '88' }}
+              thumbColor={isDark ? colors.accent : colors.textDim}
+            />
+          </View>
+          <View style={styles.row}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.income + '22' }]}>
+                <Ionicons name="color-palette-outline" size={17} color={colors.income} />
+              </View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Theme</Text>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>{isDark ? 'Dark' : 'Light'}</Text>
+          </View>
+        </Section>
 
         {/* ── Period ── */}
-        <Section title="Period">
+        <Section title="Period" colors={colors}>
           <Row
             label="Month"
             icon="calendar-outline"
-            iconColor={Colors.accent}
+            iconColor={colors.accent}
+            colors={colors}
             right={
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: 200 }}>
                 <View style={{ flexDirection: 'row', gap: 4 }}>
                   {MONTHS.map((m, i) => (
                     <TouchableOpacity
                       key={m}
-                      style={[styles.chip, month === i && { backgroundColor: Colors.accent + '33', borderColor: Colors.accent }]}
+                      style={[styles.chip, { borderColor: colors.border }, month === i && { backgroundColor: colors.accent + '33', borderColor: colors.accent }]}
                       onPress={() => setMonth(i)}
                     >
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: month === i ? Colors.accent : Colors.textDim }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: month === i ? colors.accent : colors.textDim }}>
                         {m.slice(0, 3)}
                       </Text>
                     </TouchableOpacity>
@@ -104,17 +142,18 @@ export default function SettingsScreen() {
           <Row
             label="Year"
             icon="time-outline"
-            iconColor={Colors.accent}
+            iconColor={colors.accent}
             last
+            colors={colors}
             right={
               <View style={{ flexDirection: 'row', gap: 4 }}>
                 {YEARS.map(y => (
                   <TouchableOpacity
                     key={y}
-                    style={[styles.chip, year === y && { backgroundColor: Colors.accent + '33', borderColor: Colors.accent }]}
+                    style={[styles.chip, { borderColor: colors.border }, year === y && { backgroundColor: colors.accent + '33', borderColor: colors.accent }]}
                     onPress={() => setYear(y)}
                   >
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: year === y ? Colors.accent : Colors.textDim }}>{y}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: year === y ? colors.accent : colors.textDim }}>{y}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -123,40 +162,41 @@ export default function SettingsScreen() {
         </Section>
 
         {/* ── Currency ── */}
-        <Section title="Currency">
-          <View style={styles.currencyGrid}>
+        <Section title="Currency" colors={colors}>
+          <View style={[styles.currencyGrid]}>
             {CURRENCIES.map(c => (
               <TouchableOpacity
                 key={c.code}
                 style={[
                   styles.currencyChip,
-                  currency === c.code && { backgroundColor: Colors.accent + '22', borderColor: Colors.accent },
+                  { borderColor: colors.border },
+                  currency === c.code && { backgroundColor: colors.accent + '22', borderColor: colors.accent },
                 ]}
                 onPress={() => setCurrency(c.code)}
               >
-                <Text style={{ fontSize: 14, fontWeight: '800', color: currency === c.code ? Colors.accent : Colors.text }}>{c.symbol}</Text>
-                <Text style={{ fontSize: 9, fontWeight: '700', color: currency === c.code ? Colors.accent : Colors.textDim }}>{c.code}</Text>
-                <Text style={{ fontSize: 8, color: Colors.textDim }} numberOfLines={1}>{c.name}</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: currency === c.code ? colors.accent : colors.text }}>{c.symbol}</Text>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: currency === c.code ? colors.accent : colors.textDim }}>{c.code}</Text>
+                <Text style={{ fontSize: 9, color: colors.textDim }} numberOfLines={1}>{c.name}</Text>
               </TouchableOpacity>
             ))}
           </View>
-          <TouchableOpacity style={styles.refreshBtn} onPress={handleRefreshRates}>
-            <Ionicons name="refresh-outline" size={14} color={Colors.accent} />
-            <Text style={{ fontSize: 11, color: Colors.accent, fontWeight: '700' }}>Refresh Exchange Rates</Text>
+          <TouchableOpacity style={[styles.refreshBtn, { borderTopColor: colors.border }]} onPress={handleRefreshRates}>
+            <Ionicons name="refresh-outline" size={15} color={colors.accent} />
+            <Text style={{ fontSize: 12, color: colors.accent, fontWeight: '700' }}>Refresh Exchange Rates</Text>
           </TouchableOpacity>
         </Section>
 
         {/* ── Initial Balance ── */}
-        <Section title="Initial Balance">
+        <Section title="Initial Balance" colors={colors}>
           <View style={[styles.row, { alignItems: 'center', gap: 10 }]}>
-            <View style={[styles.iconCircle, { backgroundColor: Colors.income + '22' }]}>
-              <Ionicons name="wallet-outline" size={16} color={Colors.income} />
+            <View style={[styles.iconCircle, { backgroundColor: colors.income + '22' }]}>
+              <Ionicons name="wallet-outline" size={17} color={colors.income} />
             </View>
-            <Text style={styles.rowLabel}>Starting Balance</Text>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Starting Balance</Text>
             <View style={{ marginLeft: 'auto', alignItems: 'flex-end' }}>
               {editingBal ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={{ color: Colors.textDim, fontSize: 13 }}>{curSym}</Text>
+                  <Text style={{ color: colors.textDim, fontSize: 14 }}>{curSym}</Text>
                   <TextInput
                     value={balInput}
                     onChangeText={setBalInput}
@@ -164,17 +204,17 @@ export default function SettingsScreen() {
                     autoFocus
                     onBlur={handleBalCommit}
                     onSubmitEditing={handleBalCommit}
-                    style={styles.balInput}
+                    style={[styles.balInput, { color: colors.income, borderBottomColor: colors.income }]}
                     returnKeyType="done"
                   />
                 </View>
               ) : (
                 <TouchableOpacity
                   onPress={() => { setBalInput(String(dispBal)); setEditingBal(true); }}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
                 >
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: Colors.income }}>{fmt(initialBalance)}</Text>
-                  <Ionicons name="pencil-outline" size={12} color={Colors.textDim} />
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: colors.income }}>{fmt(initialBalance)}</Text>
+                  <Ionicons name="pencil-outline" size={13} color={colors.textDim} />
                 </TouchableOpacity>
               )}
             </View>
@@ -182,20 +222,23 @@ export default function SettingsScreen() {
         </Section>
 
         {/* ── About ── */}
-        <Section title="About">
-          <Row icon="information-circle-outline" iconColor={Colors.savings} label="Version" right={<Text style={{ color: Colors.textDim, fontSize: 12 }}>1.0.0</Text>} />
-          <Row icon="phone-portrait-outline" iconColor={Colors.bills} label="Platform" right={<Text style={{ color: Colors.textDim, fontSize: 12 }}>Expo / React Native</Text>} last />
+        <Section title="About" colors={colors}>
+          <Row icon="information-circle-outline" iconColor={colors.savings} label="Version" colors={colors}
+            right={<Text style={{ color: colors.textDim, fontSize: 13 }}>1.0.0</Text>} />
+          <Row icon="phone-portrait-outline" iconColor={colors.bills} label="Platform" colors={colors} last
+            right={<Text style={{ color: colors.textDim, fontSize: 13 }}>Expo / React Native</Text>} />
         </Section>
 
-        {/* ── Danger ── */}
-        <Section title="Data">
+        {/* ── Data ── */}
+        <Section title="Data" colors={colors}>
           <Row
             icon="trash-outline"
-            iconColor={Colors.negative}
+            iconColor={colors.negative}
             label="Reset All Data"
             onPress={handleReset}
             last
-            right={<Ionicons name="chevron-forward" size={14} color={Colors.textDim} />}
+            colors={colors}
+            right={<Ionicons name="chevron-forward" size={15} color={colors.textDim} />}
           />
         </Section>
 
@@ -206,45 +249,37 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.bg },
-  container: { flex: 1, backgroundColor: Colors.bg },
+  safeArea: { flex: 1 },
+  container: { flex: 1 },
   content: { padding: 14, gap: 0 },
 
-  pageTitle: { fontSize: 22, fontWeight: '900', color: Colors.textBright, letterSpacing: -0.5, marginBottom: 20 },
+  pageTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5, marginBottom: 20 },
 
   section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: Colors.textDim, marginBottom: 6, paddingLeft: 4 },
-  sectionCard: { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border, borderRadius: 10, overflow: 'hidden' },
+  sectionTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', marginBottom: 6, paddingLeft: 4 },
+  sectionCard: { borderWidth: 1, borderRadius: 10, overflow: 'hidden' },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14 },
-  rowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.border },
-  rowLabel: { fontSize: 14, color: Colors.text },
+  rowLabel: { fontSize: 15 },
 
-  iconCircle: { width: 32, height: 32, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  iconCircle: { width: 34, height: 34, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
 
-  chip: {
-    paddingHorizontal: 8, paddingVertical: 4,
-    borderRadius: 12, borderWidth: 1, borderColor: Colors.border,
-  },
+  chip: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, borderWidth: 1 },
 
-  currencyGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 14,
-  },
+  currencyGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 14 },
   currencyChip: {
-    width: 70, padding: 10,
-    borderRadius: 8, borderWidth: 1, borderColor: Colors.border,
-    alignItems: 'center', gap: 2,
+    width: 72, padding: 10,
+    borderRadius: 9, borderWidth: 1,
+    alignItems: 'center', gap: 3,
   },
 
   refreshBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    padding: 12, borderTopWidth: 1, borderTopColor: Colors.border,
+    padding: 12, borderTopWidth: 1,
   },
 
   balInput: {
-    color: Colors.income, fontSize: 16, fontWeight: '800',
-    borderBottomWidth: 1, borderBottomColor: Colors.income,
-    minWidth: 80, textAlign: 'right',
-    padding: 0,
+    fontSize: 17, fontWeight: '800',
+    borderBottomWidth: 1, minWidth: 80, textAlign: 'right', padding: 0,
   },
 });

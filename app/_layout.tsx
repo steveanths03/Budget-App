@@ -1,97 +1,116 @@
+// app/_layout.tsx
 import { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { Colors } from '../constants/theme';
+import { DarkColors } from '../constants/theme';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
+
+/* Inner component so useTheme() works inside ThemeProvider */
+function AppTabs() {
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.bg} />
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: colors.card,
+            borderTopColor: colors.border,
+            borderTopWidth: 1,
+            // Fix #1: respect device bottom safe-area (home indicator / gesture bar)
+            height: 56 + insets.bottom,
+            paddingBottom: insets.bottom + 4,
+            paddingTop: 6,
+          },
+          tabBarActiveTintColor: colors.accent,
+          tabBarInactiveTintColor: colors.textDim,
+          tabBarLabelStyle: {
+            fontSize: 10,           // +1pt
+            fontWeight: '700',
+            letterSpacing: 0.5,
+            textTransform: 'uppercase',
+          },
+        }}
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Dashboard',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="grid-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="budget"
+          options={{
+            title: 'Budget',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="list-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="transactions"
+          options={{
+            title: 'Txns',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="swap-horizontal-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="analytics"
+          options={{
+            title: 'Analytics',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="bar-chart-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="settings-outline" size={size} color={color} />
+            ),
+          }}
+        />
+      </Tabs>
+    </>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <View style={{ flex: 1, backgroundColor: DarkColors.bg, justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator color={DarkColors.accent} size="large" />
+    </View>
+  );
+}
 
 export default function RootLayout() {
   const { load, loaded } = useStore();
 
   useEffect(() => { load(); }, []);
 
-  if (!loaded) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color={Colors.accent} size="large" />
-      </View>
-    );
-  }
+  if (!loaded) return <LoadingScreen />;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="light" backgroundColor={Colors.bg} />
-        <Tabs
-          screenOptions={{
-            headerShown: false,
-            tabBarStyle: {
-              backgroundColor: Colors.card,
-              borderTopColor: Colors.border,
-              borderTopWidth: 1,
-              paddingBottom: 4,
-              height: 60,
-            },
-            tabBarActiveTintColor: Colors.accent,
-            tabBarInactiveTintColor: Colors.textDim,
-            tabBarLabelStyle: {
-              fontSize: 9,
-              fontWeight: '700',
-              letterSpacing: 0.5,
-              textTransform: 'uppercase',
-              marginBottom: 2,
-            },
-          }}
-        >
-          <Tabs.Screen
-            name="index"
-            options={{
-              title: 'Dashboard',
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons name="grid-outline" size={size - 2} color={color} />
-              ),
-            }}
-          />
-          <Tabs.Screen
-            name="budget"
-            options={{
-              title: 'Budget',
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons name="list-outline" size={size - 2} color={color} />
-              ),
-            }}
-          />
-          <Tabs.Screen
-            name="transactions"
-            options={{
-              title: 'Transactions',
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons name="swap-horizontal-outline" size={size - 2} color={color} />
-              ),
-            }}
-          />
-          <Tabs.Screen
-            name="analytics"
-            options={{
-              title: 'Analytics',
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons name="bar-chart-outline" size={size - 2} color={color} />
-              ),
-            }}
-          />
-          <Tabs.Screen
-            name="settings"
-            options={{
-              title: 'Settings',
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons name="settings-outline" size={size - 2} color={color} />
-              ),
-            }}
-          />
-        </Tabs>
+        <ThemeProvider>
+          <AppTabs />
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
