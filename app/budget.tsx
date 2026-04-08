@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
-import { CURRENCIES } from '../constants/theme';
+import { CURRENCIES, MONTHS } from '../constants/theme';
 import { fmtC, cvt, toUSD, uid } from '../utils/format';
 
 const CARD_CONFIGS = [
@@ -36,8 +36,6 @@ const UtilBar = ({ pct, color, colors }: { pct: number; color: string; colors: a
 
 /* ─────────────────────────────────────────────────────────────────────
    RowModal
-   - initialData.displayAmount  = value already in user's currency (NOT USD)
-   - onSave receives displayAmount in user's currency; caller does toUSD()
    ───────────────────────────────────────────────────────────────────── */
 const RowModal = ({
   visible, onClose, onSave, schema, titleColor, initialData, colors, currencySymbol,
@@ -96,7 +94,6 @@ const RowModal = ({
             autoFocus
           />
 
-          {/* Label shows the currency symbol so user knows what unit they're entering */}
           <Text style={[styles.inputLabel, { marginTop: 14, color: colors.textDim }]}>
             {isIncome ? 'Expected Amount' : 'Budget Amount'} ({currencySymbol})
           </Text>
@@ -153,33 +150,32 @@ const BudgetCard = ({
 
   const rows = (db as any)[dbKey] || [];
 
-  // fmtC: USD → display currency string
   const fmt = (usdVal: number) => fmtC(usdVal, currency, liveRates);
 
-  // USD → display-currency number (for pre-filling the modal)
   const toDisplay = (usdVal: number): number => {
     const raw = cvt(usdVal, currency, liveRates);
     return currency === 'JPY' ? Math.round(raw) : Math.round(raw * 100) / 100;
   };
 
-  // Transactions are stored in USD (same as budget rows)
+  /* Build actual spending map from THIS month's transactions */
   const realMap = useMemo(() => {
     const m: Record<string, number> = {};
     transactions.forEach(t => { m[t.subCategory] = (m[t.subCategory] || 0) + t.amount; });
     return m;
   }, [transactions]);
 
-  const totalBudgetUSD = rows.reduce((s: number, r: any) => s + (isIncome ? r.expected : r.budget), 0);
-  const totalRealUSD   = rows.reduce((s: number, r: any) => s + (realMap[isIncome ? r.source : r.sub] || 0), 0);
+  const nameKey   = isIncome ? 'source' : 'sub';
+  const budgetKey = isIncome ? 'expected' : 'budget';
 
-  /* Normalise a DB row → modal-friendly shape */
+  const totalBudgetUSD = rows.reduce((s: number, r: any) => s + r[budgetKey], 0);
+  const totalRealUSD   = rows.reduce((s: number, r: any) => s + (realMap[r[nameKey]] || 0), 0);
+
   const toEditData = (r: any) => ({
     id:            r.id,
-    name:          isIncome ? r.source : r.sub,
-    displayAmount: toDisplay(isIncome ? r.expected : r.budget),
+    name:          r[nameKey],
+    displayAmount: toDisplay(r[budgetKey]),
   });
 
-  /* Add: user entered displayAmount in their currency → convert to USD */
   const handleAdd = ({ name, displayAmount }: { name: string; displayAmount: number }) => {
     const usdVal = toUSD(displayAmount, currency, liveRates);
     if (isIncome) {
@@ -189,7 +185,6 @@ const BudgetCard = ({
     }
   };
 
-  /* Edit: same conversion */
   const handleEdit = ({ name, displayAmount }: { name: string; displayAmount: number }) => {
     if (!editData) return;
     const usdVal = toUSD(displayAmount, currency, liveRates);
@@ -234,8 +229,8 @@ const BudgetCard = ({
           </View>
 
           {rows.map((r: any) => {
-            const name      = isIncome ? r.source : r.sub;
-            const budgetUSD = isIncome ? r.expected : r.budget;
+            const name      = r[nameKey];
+            const budgetUSD = r[budgetKey];
             const realUSD   = realMap[name] || 0;
             const pct       = budgetUSD > 0 ? Math.round((realUSD / budgetUSD) * 100) : 0;
             return (
@@ -300,6 +295,7 @@ export default function BudgetScreen() {
   const { colors }        = useTheme();
   const { currency, month, year } = db;
 
+  /* Month transactions — used by all cards to compute actual spending */
   const monthTxns = useMemo(() => db.transactions.filter(t => {
     const d = new Date(t.date + 'T00:00:00');
     return d.getFullYear() === year && d.getMonth() === month;
@@ -313,7 +309,9 @@ export default function BudgetScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.pageTitle, { color: colors.textBright }]}>Budget</Text>
-        <Text style={[styles.pageSub, { color: colors.textDim }]}>Tap a row to edit · Press × to delete</Text>
+        <Text style={[styles.pageSub, { color: colors.textDim }]}>
+          {MONTHS[month]} {year} · Tap a row to edit · Press × to delete
+        </Text>
 
         {CARD_CONFIGS.map(cfg => (
           <BudgetCard
@@ -323,7 +321,10 @@ export default function BudgetScreen() {
             dbKey={cfg.key}
             currency={currency}
             liveRates={liveRates}
-            transactions={monthTxns.filter(t => t.category === cfg.label)}
+            /* Pass only transactions for this category + this month */
+            transactions={monthTxns.filter(t =>
+              cfg.label === 'Income' ? t.category === 'Income' : t.category === cfg.label
+            )}
           />
         ))}
 

@@ -37,7 +37,11 @@ const Row = ({ label, icon, iconColor, right, onPress, last, colors }: any) => (
 );
 
 export default function SettingsScreen() {
-  const { db, liveRates, setCurrency, setMonth, setYear, setInitialBalance, persist, fetchRates } = useStore();
+  const {
+    db, liveRates, setCurrency, setMonth, setYear,
+    setInitialBalance, persist, fetchRates,
+    getCarryForwardBalance, getMonthlyBalance, getOverallBalance,
+  } = useStore();
   const { colors, isDark, toggleTheme } = useTheme();
   const { currency, month, year, initialBalance } = db;
 
@@ -48,10 +52,19 @@ export default function SettingsScreen() {
   const curSym = (CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol;
   const dispBal = Number(cvt(initialBalance, currency, liveRates).toFixed(2));
 
+  const today = new Date();
+  const todayMonth = today.getMonth();
+  const todayYear  = today.getFullYear();
+
   const handleBalCommit = () => {
     const v = parseFloat(balInput);
     if (!isNaN(v)) setInitialBalance(toUSD(v, currency, liveRates));
     setEditingBal(false);
+  };
+
+  const handleJumpToToday = () => {
+    setMonth(todayMonth);
+    setYear(todayYear);
   };
 
   const handleReset = () => {
@@ -64,7 +77,12 @@ export default function SettingsScreen() {
           text: 'Reset', style: 'destructive',
           onPress: async () => {
             const { SEED_DATA } = await import('../constants/seed');
-            persist(SEED_DATA as any);
+            const today2 = new Date();
+            persist({
+              ...(SEED_DATA as any),
+              month: today2.getMonth(),
+              year: today2.getFullYear(),
+            });
           },
         },
       ]
@@ -75,6 +93,13 @@ export default function SettingsScreen() {
     fetchRates();
     Alert.alert('Rates Updated', 'Currency exchange rates have been refreshed.');
   };
+
+  // Balance summaries
+  const carryForward   = getCarryForwardBalance(year, month);
+  const monthlyNet     = getMonthlyBalance(year, month);
+  const overallBalance = getOverallBalance();
+
+  const isCurrentMonth = month === todayMonth && year === todayYear;
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]} edges={['top']}>
@@ -116,49 +141,86 @@ export default function SettingsScreen() {
 
         {/* ── Period ── */}
         <Section title="Period" colors={colors}>
-          <Row
-            label="Month"
-            icon="calendar-outline"
-            iconColor={colors.accent}
-            colors={colors}
-            right={
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: 200 }}>
-                <View style={{ flexDirection: 'row', gap: 4 }}>
-                  {MONTHS.map((m, i) => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[styles.chip, { borderColor: colors.border }, month === i && { backgroundColor: colors.accent + '33', borderColor: colors.accent }]}
-                      onPress={() => setMonth(i)}
-                    >
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: month === i ? colors.accent : colors.textDim }}>
-                        {m.slice(0, 3)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            }
-          />
-          <Row
-            label="Year"
-            icon="time-outline"
-            iconColor={colors.accent}
-            last
-            colors={colors}
-            right={
-              <View style={{ flexDirection: 'row', gap: 4 }}>
-                {YEARS.map(y => (
-                  <TouchableOpacity
-                    key={y}
-                    style={[styles.chip, { borderColor: colors.border }, year === y && { backgroundColor: colors.accent + '33', borderColor: colors.accent }]}
-                    onPress={() => setYear(y)}
-                  >
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: year === y ? colors.accent : colors.textDim }}>{y}</Text>
-                  </TouchableOpacity>
-                ))}
+          {/* Current month indicator + jump to today */}
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.accent + '22' }]}>
+                <Ionicons name="today-outline" size={17} color={colors.accent} />
               </View>
-            }
-          />
+              <View>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Viewing Period</Text>
+                <Text style={{ fontSize: 11, color: colors.textDim, marginTop: 1 }}>
+                  {MONTHS[month]} {year}{isCurrentMonth ? ' (current)' : ''}
+                </Text>
+              </View>
+            </View>
+            {!isCurrentMonth && (
+              <TouchableOpacity
+                style={[styles.chip, { borderColor: colors.accent, backgroundColor: colors.accent + '22' }]}
+                onPress={handleJumpToToday}
+              >
+                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.accent }}>Today</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Month picker */}
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 10 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.accent + '22' }]}>
+                <Ionicons name="calendar-outline" size={17} color={colors.accent} />
+              </View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Month</Text>
+            </View>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {MONTHS.map((m, i) => (
+                <TouchableOpacity
+                  key={m}
+                  style={[
+                    styles.chip,
+                    { borderColor: colors.border },
+                    month === i && { backgroundColor: colors.accent + '33', borderColor: colors.accent },
+                    i === todayMonth && year === todayYear && month !== i && { borderColor: colors.accent + '55' },
+                  ]}
+                  onPress={() => setMonth(i)}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: month === i ? colors.accent : colors.textDim }}>
+                    {m.slice(0, 3)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          {/* Year picker */}
+          <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 10 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.accent + '22' }]}>
+                <Ionicons name="time-outline" size={17} color={colors.accent} />
+              </View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Year</Text>
+            </View>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {YEARS.map(y => (
+                <TouchableOpacity
+                  key={y}
+                  style={[
+                    styles.chip,
+                    { borderColor: colors.border },
+                    year === y && { backgroundColor: colors.accent + '33', borderColor: colors.accent },
+                    y === todayYear && year !== y && { borderColor: colors.accent + '55' },
+                  ]}
+                  onPress={() => setYear(y)}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: year === y ? colors.accent : colors.textDim }}>{y}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
         </Section>
 
         {/* ── Currency ── */}
@@ -186,14 +248,18 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </Section>
 
-        {/* ── Initial Balance ── */}
-        <Section title="Initial Balance" colors={colors}>
-          <View style={[styles.row, { alignItems: 'center', gap: 10 }]}>
+        {/* ── Balance Overview ── */}
+        <Section title="Balance Overview" colors={colors}>
+          {/* Initial / Seed balance */}
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center', gap: 10 }]}>
             <View style={[styles.iconCircle, { backgroundColor: colors.income + '22' }]}>
               <Ionicons name="wallet-outline" size={17} color={colors.income} />
             </View>
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Starting Balance</Text>
-            <View style={{ marginLeft: 'auto', alignItems: 'flex-end' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Starting Balance</Text>
+              <Text style={{ fontSize: 11, color: colors.textDim }}>One-time balance (all-time baseline)</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
               {editingBal ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={{ color: colors.textDim, fontSize: 14 }}>{curSym}</Text>
@@ -218,6 +284,54 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               )}
             </View>
+          </View>
+
+          {/* Carry-forward balance */}
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.savings + '22' }]}>
+                <Ionicons name="arrow-forward-circle-outline" size={17} color={colors.savings} />
+              </View>
+              <View>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Carried Forward</Text>
+                <Text style={{ fontSize: 11, color: colors.textDim }}>Balance entering {MONTHS[month]} {year}</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: carryForward >= 0 ? colors.positive : colors.negative }}>
+              {fmt(carryForward)}
+            </Text>
+          </View>
+
+          {/* Monthly net */}
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.accent + '22' }]}>
+                <Ionicons name="trending-up-outline" size={17} color={colors.accent} />
+              </View>
+              <View>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Monthly Net</Text>
+                <Text style={{ fontSize: 11, color: colors.textDim }}>{MONTHS[month]} {year} income − spend</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: monthlyNet >= 0 ? colors.positive : colors.negative }}>
+              {fmt(monthlyNet)}
+            </Text>
+          </View>
+
+          {/* Overall / net worth */}
+          <View style={styles.row}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.positive + '22' }]}>
+                <Ionicons name="diamond-outline" size={17} color={colors.positive} />
+              </View>
+              <View>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Overall Balance</Text>
+                <Text style={{ fontSize: 11, color: colors.textDim }}>Starting balance + all transactions</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: overallBalance >= 0 ? colors.positive : colors.negative }}>
+              {fmt(overallBalance)}
+            </Text>
           </View>
         </Section>
 

@@ -53,7 +53,6 @@ const QuickAddModal = ({
 
   const handleSave = () => {
     if (!canSave) return;
-    // Convert display-currency amount → USD before saving
     const usdAmount = toUSD(parseFloat(amount), currency, liveRates);
     onSave({ date: todayStr(), amount: usdAmount, category, subCategory, description });
     onClose();
@@ -169,6 +168,15 @@ const StatCard = ({ label, value, color, colors }: any) => (
   </View>
 );
 
+/* ─── Balance card ──────────────────────────────────────────────── */
+const BalanceCard = ({ label, sublabel, value, color, colors }: any) => (
+  <View style={[dStyles.balCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <Text style={[dStyles.balLabel, { color: colors.textDim }]}>{label}</Text>
+    <Text style={[dStyles.balValue, { color }]}>{value}</Text>
+    {sublabel ? <Text style={[dStyles.balSub, { color: colors.textDim }]}>{sublabel}</Text> : null}
+  </View>
+);
+
 /* ─── Budget utilization row ────────────────────────────────────── */
 const BudgetRow = ({ label, color, pct, real, budget, fmt, colors }: any) => {
   const capped = Math.min(pct, 100);
@@ -193,15 +201,15 @@ const BudgetRow = ({ label, color, pct, real, budget, fmt, colors }: any) => {
 
 /* ─── Dashboard Screen ───────────────────────────────────────────── */
 export default function DashboardScreen() {
-  const { db, liveRates, addTransaction } = useStore();
-  const { colors, catColors }             = useTheme();
-  const router                            = useRouter();
+  const { db, liveRates, addTransaction, getMonthlyBalance, getCarryForwardBalance, getOverallBalance } = useStore();
+  const { colors, catColors } = useTheme();
+  const router                = useRouter();
   const [quickAddVisible, setQuickAddVisible] = useState(false);
 
-  const { currency, month, year, transactions, initialBalance } = db;
+  const { currency, month, year, transactions } = db;
   const fmt = (usdVal: number) => fmtC(usdVal, currency, liveRates);
 
-  /* Month transactions (for summary strip) */
+  /* Month transactions */
   const monthTxns = useMemo(() =>
     transactions.filter(t => {
       const d = new Date(t.date + 'T00:00:00');
@@ -211,9 +219,17 @@ export default function DashboardScreen() {
   /* Month totals */
   const totalIn  = monthTxns.filter(t => t.category === 'Income').reduce((s, t) => s + t.amount, 0);
   const totalOut = monthTxns.filter(t => t.category !== 'Income').reduce((s, t) => s + t.amount, 0);
-  const net      = totalIn - totalOut;
+  const monthlyNet = totalIn - totalOut;
 
-  /* Budget utilization */
+  /* Two balances:
+   * carryForward = what was left at the END of last month (initialBalance + all prior months)
+   * monthlyBalance = just this month's net (income - spend)
+   * overallBalance = initialBalance + all transactions ever
+   */
+  const carryForward    = getCarryForwardBalance(year, month);
+  const overallBalance  = getOverallBalance();
+
+  /* Budget utilization — driven entirely by transactions, not stored 'real' */
   const budgetRows = useMemo(() => [
     { label: 'Expenses',      color: catColors.Expenses,      dbKey: 'expenses',      txCat: 'Expenses' },
     { label: 'Bills',         color: catColors.Bills,         dbKey: 'bills',         txCat: 'Bills' },
@@ -221,18 +237,17 @@ export default function DashboardScreen() {
     { label: 'Debts',         color: catColors.Debts,         dbKey: 'debts',         txCat: 'Debts' },
     { label: 'Subscriptions', color: catColors.Subscriptions, dbKey: 'subscriptions', txCat: 'Subscriptions' },
   ].map(r => {
+    // Budget is the sum of all budget rows (budget rows are monthly targets)
     const budget = (db as any)[r.dbKey].reduce((s: number, x: any) => s + x.budget, 0);
-    const real   = monthTxns.filter(t => t.category === r.txCat).reduce((s, t) => s + t.amount, 0);
-    const pct    = budget > 0 ? Math.round((real / budget) * 100) : 0;
+    // Real is derived from this month's transactions only
+    const real = monthTxns
+      .filter(t => t.category === r.txCat)
+      .reduce((s, t) => s + t.amount, 0);
+    const pct = budget > 0 ? Math.round((real / budget) * 100) : 0;
     return { ...r, budget, real, pct };
   }), [db, monthTxns, catColors]);
 
-  /* Net worth = initialBalance + ALL-TIME net */
-  const allIn    = transactions.filter(t => t.category === 'Income').reduce((s, t) => s + t.amount, 0);
-  const allOut   = transactions.filter(t => t.category !== 'Income').reduce((s, t) => s + t.amount, 0);
-  const netWorth = initialBalance + allIn - allOut;
-
-  /* Most recent 5 transactions (all-time, not month-filtered) */
+  /* Most recent 5 transactions (all-time) */
   const recent = useMemo(() =>
     [...transactions]
       .sort((a, b) => b.date.localeCompare(a.date))
@@ -243,7 +258,6 @@ export default function DashboardScreen() {
   const alerts = budgetRows.filter(r => r.pct > 100);
 
   const handleQuickAdd = (data: any) => {
-    // data.amount is already USD (converted inside QuickAddModal)
     addTransaction({ id: uid(), ...data });
   };
 
@@ -267,20 +281,40 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Net Worth banner */}
-        <View style={[s.banner, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[s.bannerLabel, { color: colors.textDim }]}>NET WORTH</Text>
-          <Text style={[s.bannerValue, { color: netWorth >= 0 ? colors.positive : colors.negative }]}>
-            {fmt(netWorth)}
-          </Text>
-          <Text style={[s.bannerSub, { color: colors.textDim }]}>initial balance + all transactions</Text>
+        {/* Two balance cards */}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <BalanceCard
+            label="MONTHLY BALANCE"
+            sublabel="This month's net"
+            value={fmt(monthlyNet)}
+            color={monthlyNet >= 0 ? colors.positive : colors.negative}
+            colors={colors}
+          />
+          <BalanceCard
+            label="OVERALL BALANCE"
+            sublabel="All-time net worth"
+            value={fmt(overallBalance)}
+            color={overallBalance >= 0 ? colors.positive : colors.negative}
+            colors={colors}
+          />
         </View>
 
-        {/* Month summary */}
+        {/* Carry-forward banner */}
+        <View style={[s.carryBanner, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.carryLabel, { color: colors.textDim }]}>CARRIED FORWARD</Text>
+            <Text style={[s.carrySub, { color: colors.textDim }]}>Balance entering {MONTHS[month]}</Text>
+          </View>
+          <Text style={[s.carryValue, { color: carryForward >= 0 ? colors.positive : colors.negative }]}>
+            {fmt(carryForward)}
+          </Text>
+        </View>
+
+        {/* Month summary strip */}
         <View style={s.row3}>
           <StatCard label="IN"  value={fmt(totalIn)}  color={colors.positive} colors={colors} />
           <StatCard label="OUT" value={fmt(totalOut)} color={colors.negative} colors={colors} />
-          <StatCard label="NET" value={fmt(net)} color={net >= 0 ? colors.positive : colors.negative} colors={colors} />
+          <StatCard label="NET" value={fmt(monthlyNet)} color={monthlyNet >= 0 ? colors.positive : colors.negative} colors={colors} />
         </View>
 
         {/* Over-budget alerts */}
@@ -300,7 +334,7 @@ export default function DashboardScreen() {
 
         {/* Budget utilization */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[s.cardLabel, { color: colors.textDim }]}>BUDGET UTILIZATION</Text>
+          <Text style={[s.cardLabel, { color: colors.textDim }]}>BUDGET UTILIZATION — {MONTHS[month]}</Text>
           {budgetRows.map(r => (
             <BudgetRow key={r.label} {...r} fmt={fmt} colors={colors} />
           ))}
@@ -312,7 +346,7 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Recent transactions — always shows all-time recents, not month-filtered */}
+        {/* Recent transactions */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <Text style={[s.cardLabel, { color: colors.textDim, marginBottom: 0 }]}>RECENT TRANSACTIONS</Text>
@@ -393,10 +427,13 @@ const makeScreenStyles = (colors: any) => StyleSheet.create({
 
   fab: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
 
-  banner:      { borderWidth: 1, borderRadius: 10, padding: 18, alignItems: 'center' },
-  bannerLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase' },
-  bannerValue: { fontSize: 32, fontWeight: '900', letterSpacing: -1, marginVertical: 4 },
-  bannerSub:   { fontSize: 11 },
+  carryBanner: {
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center',
+  },
+  carryLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' },
+  carrySub:   { fontSize: 11, marginTop: 2 },
+  carryValue: { fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
 
   row3:     { flexDirection: 'row', gap: 8 },
   card:     { borderWidth: 1, borderRadius: 10, padding: 14 },
@@ -415,4 +452,9 @@ const dStyles = StyleSheet.create({
   statCard:  { flex: 1, padding: 12, borderRadius: 8, borderWidth: 1 },
   statLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' },
   statValue: { fontSize: 15, fontWeight: '800', marginTop: 4 },
+
+  balCard:  { flex: 1, borderWidth: 1, borderRadius: 10, padding: 14 },
+  balLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 },
+  balValue: { fontSize: 18, fontWeight: '900', letterSpacing: -0.5 },
+  balSub:   { fontSize: 10, marginTop: 3 },
 });

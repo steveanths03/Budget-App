@@ -21,7 +21,7 @@ export interface DB {
   debts: BudgetRow[];
   subscriptions: BudgetRow[];
   transactions: Transaction[];
-  initialBalance: number;
+  initialBalance: number; // The user's all-time starting balance (set once)
   currency: string;
   month: number;
   year: number;
@@ -44,9 +44,14 @@ interface AppStore {
   editTransaction: (id: string, patch: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
   fetchRates: () => Promise<void>;
+
+  // Computed balance helpers (pure functions, not stored)
+  getMonthlyBalance: (year: number, month: number) => number;
+  getCarryForwardBalance: (year: number, month: number) => number;
+  getOverallBalance: () => number;
 }
 
-const STORAGE_KEY = 'budget_app_v1';
+const STORAGE_KEY = 'budget_app_v2';
 
 const uid = () => Math.random().toString(36).slice(2);
 
@@ -58,11 +63,28 @@ export const useStore = create<AppStore>((set, get) => ({
   load: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      const today = new Date();
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+
       if (raw) {
         const parsed = JSON.parse(raw);
-        set({ db: { ...SEED_DATA, ...parsed }, loaded: true });
+        // Always keep month/year in sync with current date on load
+        const merged = {
+          ...SEED_DATA,
+          ...parsed,
+          month: currentMonth,
+          year: currentYear,
+        };
+        set({ db: merged, loaded: true });
       } else {
-        set({ loaded: true });
+        // Fresh install: set current month/year
+        const freshDb = {
+          ...(SEED_DATA as DB),
+          month: currentMonth,
+          year: currentYear,
+        };
+        set({ db: freshDb, loaded: true });
       }
     } catch {
       set({ loaded: true });
@@ -137,5 +159,66 @@ export const useStore = create<AppStore>((set, get) => ({
         set({ liveRates: j.rates });
       }
     } catch {}
+  },
+
+  /**
+   * Net for a specific month: income - all outflows
+   */
+  getMonthlyBalance: (year: number, month: number) => {
+    const { transactions } = get().db;
+    const monthTxns = transactions.filter(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+    const income = monthTxns
+      .filter(t => t.category === 'Income')
+      .reduce((s, t) => s + t.amount, 0);
+    const out = monthTxns
+      .filter(t => t.category !== 'Income')
+      .reduce((s, t) => s + t.amount, 0);
+    return income - out;
+  },
+
+  /**
+   * Balance carried forward INTO a given month =
+   *   initialBalance + sum of all monthly nets for every month BEFORE this one
+   *
+   * Months are compared chronologically: all transactions whose year/month
+   * is strictly before (year, month) are included.
+   */
+  getCarryForwardBalance: (year: number, month: number) => {
+    const { transactions, initialBalance } = get().db;
+
+    // Target ordinal: year * 12 + month
+    const targetOrdinal = year * 12 + month;
+
+    const prevTxns = transactions.filter(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      const ordinal = d.getFullYear() * 12 + d.getMonth();
+      return ordinal < targetOrdinal;
+    });
+
+    const prevIncome = prevTxns
+      .filter(t => t.category === 'Income')
+      .reduce((s, t) => s + t.amount, 0);
+    const prevOut = prevTxns
+      .filter(t => t.category !== 'Income')
+      .reduce((s, t) => s + t.amount, 0);
+
+    return initialBalance + prevIncome - prevOut;
+  },
+
+  /**
+   * Overall balance = initialBalance + ALL transactions net (all time)
+   */
+  getOverallBalance: () => {
+    const { transactions, initialBalance } = get().db;
+    const allIn = transactions
+      .filter(t => t.category === 'Income')
+      .reduce((s, t) => s + t.amount, 0);
+    const allOut = transactions
+      .filter(t => t.category !== 'Income')
+      .reduce((s, t) => s + t.amount, 0);
+    return initialBalance + allIn - allOut;
   },
 }));

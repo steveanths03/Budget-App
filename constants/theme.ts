@@ -91,4 +91,6 @@ export const MONTHS = [
   'July','August','September','October','November','December',
 ];
 
-export const YEARS = Array.from({ length: 10 }, (_, i) => 2020 + i);
+// Extended year range: 5 years back to 5 years forward from ~2025
+const currentYear = new Date().getFullYear();
+export const YEARS = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);

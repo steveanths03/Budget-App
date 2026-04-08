@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
-import { CATEGORY_LIST, MONTHS } from '../constants/theme';
+import { MONTHS } from '../constants/theme';
 import { fmtC } from '../utils/format';
 
 const { width: SW } = Dimensions.get('window');
@@ -91,17 +91,44 @@ export default function AnalyticsScreen() {
 
   const fmt = (v: number) => fmtC(v, currency, liveRates);
 
+  /* All transactions for the selected month */
   const monthTxns = useMemo(() => transactions.filter(t => {
     const d = new Date(t.date + 'T00:00:00');
     return d.getFullYear() === year && d.getMonth() === month;
   }), [transactions, month, year]);
 
+  /* Budget vs Real — budget from db rows, real from transactions */
   const budgetVsReal = useMemo(() => [
-    { label: 'EXP',   color: catColors.Expenses,      budget: db.expenses.reduce((s, r)       => s + r.budget, 0), real: monthTxns.filter(t => t.category === 'Expenses').reduce((s, t)       => s + t.amount, 0) },
-    { label: 'BILLS', color: catColors.Bills,          budget: db.bills.reduce((s, r)          => s + r.budget, 0), real: monthTxns.filter(t => t.category === 'Bills').reduce((s, t)          => s + t.amount, 0) },
-    { label: 'SAV',   color: catColors.Savings,        budget: db.savings.reduce((s, r)        => s + r.budget, 0), real: monthTxns.filter(t => t.category === 'Savings').reduce((s, t)        => s + t.amount, 0) },
-    { label: 'DEBTS', color: catColors.Debts,          budget: db.debts.reduce((s, r)          => s + r.budget, 0), real: monthTxns.filter(t => t.category === 'Debts').reduce((s, t)          => s + t.amount, 0) },
-    { label: 'SUBS',  color: catColors.Subscriptions,  budget: db.subscriptions.reduce((s, r) => s + r.budget, 0), real: monthTxns.filter(t => t.category === 'Subscriptions').reduce((s, t) => s + t.amount, 0) },
+    {
+      label: 'EXP',
+      color: catColors.Expenses,
+      budget: db.expenses.reduce((s, r) => s + r.budget, 0),
+      real: monthTxns.filter(t => t.category === 'Expenses').reduce((s, t) => s + t.amount, 0),
+    },
+    {
+      label: 'BILLS',
+      color: catColors.Bills,
+      budget: db.bills.reduce((s, r) => s + r.budget, 0),
+      real: monthTxns.filter(t => t.category === 'Bills').reduce((s, t) => s + t.amount, 0),
+    },
+    {
+      label: 'SAV',
+      color: catColors.Savings,
+      budget: db.savings.reduce((s, r) => s + r.budget, 0),
+      real: monthTxns.filter(t => t.category === 'Savings').reduce((s, t) => s + t.amount, 0),
+    },
+    {
+      label: 'DEBTS',
+      color: catColors.Debts,
+      budget: db.debts.reduce((s, r) => s + r.budget, 0),
+      real: monthTxns.filter(t => t.category === 'Debts').reduce((s, t) => s + t.amount, 0),
+    },
+    {
+      label: 'SUBS',
+      color: catColors.Subscriptions,
+      budget: db.subscriptions.reduce((s, r) => s + r.budget, 0),
+      real: monthTxns.filter(t => t.category === 'Subscriptions').reduce((s, t) => s + t.amount, 0),
+    },
   ], [db, monthTxns, catColors]);
 
   const catConfig = useMemo(() => [
@@ -114,20 +141,36 @@ export default function AnalyticsScreen() {
 
   const activeCat = catConfig.find(c => c.label === selectedCat) || catConfig[0];
 
+  /* Category breakdown: actual spending from transactions, fallback to budget if no txn */
   const breakdownData = useMemo(() => {
     const rows = (db as any)[activeCat.dbKey] || [];
+
+    // Build real spending map from this month's transactions for this category
     const realMap: Record<string, number> = {};
-    monthTxns.filter(t => t.category === activeCat.txCat).forEach(t => {
-      realMap[t.subCategory] = (realMap[t.subCategory] || 0) + t.amount;
+    monthTxns
+      .filter(t => t.category === activeCat.txCat)
+      .forEach(t => {
+        realMap[t.subCategory] = (realMap[t.subCategory] || 0) + t.amount;
+      });
+
+    // Combine budget rows with real spending
+    // Include rows that have either a budget or actual spending
+    const combined: Record<string, { name: string; val: number }> = {};
+
+    // Add all budget rows
+    rows.forEach((r: any) => {
+      const name = r[activeCat.nameKey];
+      combined[name] = { name, val: 0 };
     });
-    return rows
-      .map((r: any) => {
-        const name = r[activeCat.nameKey];
-        const val  = realMap[name] || r[activeCat.budgetKey] || 0;
-        return { name, val };
-      })
-      .filter((d: any) => d.val > 0)
-      .map((d: any, i: number, arr: any[]) => {
+
+    // Fill in real spending (this overrides zero for rows that have transactions)
+    Object.entries(realMap).forEach(([name, val]) => {
+      combined[name] = { name, val };
+    });
+
+    return Object.values(combined)
+      .filter(d => d.val > 0)
+      .map((d, i, arr) => {
         const factor = 0.5 + 0.5 * (arr.length <= 1 ? 1 : i / (arr.length - 1));
         const hex = activeCat.color.replace('#', '');
         const r2  = parseInt(hex.slice(0, 2), 16);
@@ -140,6 +183,7 @@ export default function AnalyticsScreen() {
 
   const maxBreakdown = Math.max(...breakdownData.map((d: any) => d.val), 1);
 
+  /* Top spending — from transactions */
   const topSubs = useMemo(() => {
     const map: Record<string, { name: string; amount: number; category: string }> = {};
     monthTxns.filter(t => t.category !== 'Income').forEach(t => {
@@ -227,7 +271,7 @@ export default function AnalyticsScreen() {
 
           {breakdownData.length === 0 ? (
             <Text style={{ color: colors.textDim, fontSize: 13, textAlign: 'center', paddingVertical: 16 }}>
-              No transactions yet for this category
+              No transactions yet for this category in {MONTHS[month]}
             </Text>
           ) : (
             breakdownData.map((d: any) => (
@@ -237,12 +281,19 @@ export default function AnalyticsScreen() {
         </View>
 
         {/* Top Spending */}
-        {topSubs.length > 0 && (
+        {topSubs.length > 0 ? (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.cardLabel, { color: colors.textDim }]}>Top Spending</Text>
+            <Text style={[styles.cardLabel, { color: colors.textDim }]}>Top Spending — {MONTHS[month]}</Text>
             {topSubs.map(d => (
               <HBar key={d.name} label={d.name} value={d.amount} maxValue={maxTop} color={catColors[d.category]} fmt={fmt} colors={colors} />
             ))}
+          </View>
+        ) : (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.cardLabel, { color: colors.textDim }]}>Top Spending — {MONTHS[month]}</Text>
+            <Text style={{ color: colors.textDim, fontSize: 13, textAlign: 'center', paddingVertical: 16 }}>
+              No spending recorded for {MONTHS[month]} yet
+            </Text>
           </View>
         )}
 
